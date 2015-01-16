@@ -181,26 +181,39 @@ static enum hrtimer_restart touch_trigger_timer_handler(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
-void trigger_baseline_state_machine(int plug_in)
+void trigger_baseline_state_machine(int plug_in, int type)
 {
-	u8 buf;
+	u8 buf=0;
+#ifdef G_ONLY
+	extern u8 hopping;
+#endif
+
 
 	if (touch_test_dev && touch_test_dev->pdata->role->ghost_detection_enable) {
 
 	    if(plug_in == 0 || plug_in == 1)
 	    {
 			if(touch_test_dev->curr_pwr_state == POWER_ON) {
-				if(plug_in ==0){
-					touch_i2c_read(touch_test_dev->client, 0x50, 1, &buf);
-					buf = buf & 0xDF;
-					touch_i2c_write_byte(touch_test_dev->client, 0x50, buf);
-				} else if(plug_in ==1){
-					touch_i2c_read(touch_test_dev->client, 0x50, 1, &buf);
-					buf = buf | 0x20;
-					touch_i2c_write_byte(touch_test_dev->client, 0x50, buf);
+		if(plug_in ==0){
+			touch_i2c_read(touch_test_dev->client, 0x50, 1, &buf);
+			buf = buf & 0xDF;
+			touch_i2c_write_byte(touch_test_dev->client, 0x50, buf);
+
+			cns_en = 0;
+			if(cur_hopping_idx != 3) cur_hopping_idx = 3;
+			safety_reset(touch_test_dev);
+			queue_delayed_work(touch_wq, &touch_test_dev->work_init,
+						msecs_to_jiffies(touch_test_dev->pdata->role->booting_delay));
 #ifdef G_ONLY
-					touch_i2c_write_byte(touch_test_dev->client, 0xFF, 0x01);
-					touch_i2c_read(touch_test_dev->client, 0x0D, 1, &buf);
+			TOUCH_INFO_MSG("cur_hopping_idx [ %s ] = %x\n", __func__, cur_hopping_idx);
+#endif
+		} else if(plug_in ==1){
+			touch_i2c_read(touch_test_dev->client, 0x50, 1, &buf);
+			buf = buf | 0x20;
+			touch_i2c_write_byte(touch_test_dev->client, 0x50, buf);
+#ifdef G_ONLY
+			touch_i2c_write_byte(touch_test_dev->client, 0xFF, 0x01);
+			touch_i2c_read(touch_test_dev->client, 0x0D, 1, &buf);
 
 					if( buf >= 1 ) {
 						switch(type) {
@@ -226,7 +239,7 @@ void trigger_baseline_state_machine(int plug_in)
 			TOUCH_INFO_MSG(" trigger_baseline_state_machine = %d \n", plug_in);
 			ts_charger_plug = plug_in;
 
-			if( trigger_baseline==0 ){
+			if( trigger_baseline==0 && plug_in ==1){
 				trigger_baseline = 1;
 
 				hrtimer_start(&hr_touch_trigger_timer, ktime_set(0, MS_TO_NS(1000)), HRTIMER_MODE_REL);
@@ -3451,7 +3464,7 @@ static int touch_probe(struct i2c_client *client, const struct i2c_device_id *id
 	ts->client = client;
 #ifdef CUST_G_TOUCH
 	ds4_i2c_client = client;
-	ts->fw_info.fw_upgrade.fw_force_rework = false;
+	ts->fw_info.fw_force_rework = false;
 #endif
 	i2c_set_clientdata(client, ts);
 
